@@ -3,9 +3,21 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-3776AB?style=flat&logo=python&logoColor=white)
 ![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52?style=flat&logo=qt&logoColor=white)
 ![OpenCV](https://img.shields.io/badge/Vision-OpenCV-5C3EE8?style=flat&logo=opencv&logoColor=white)
+![Release](https://img.shields.io/badge/Release-v1.0-brightgreen.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 
-**网页信息跨页提取系统** 是一款基于 Python、PyQt6 和 OpenCV 构建的轻量级桌面端自动化脚本工具。它通过图像识别技术智能定位网页上的“下一页”/翻页按钮，自动全选、复制并汇总多页文本内容，解决需要手动逐页复制网页数据的繁琐问题。
+**网页信息跨页提取系统** 是一款基于 Python、PyQt6 和 OpenCV 构建的轻量级桌面端自动化工具。它通过图像识别技术智能定位网页上的“下一页”/翻页按钮，自动全选、复制并汇总多页文本内容，解决需要手动逐页复制网页数据的繁琐问题。
+
+---
+
+## 📥 快速下载与运行
+
+如果您不需要修改源码，可以直接下载已打包好的版本运行：
+
+👉 **[点击此处直接下载可执行文件 (default.zip)](https://github.com/linrabbit271/Roll_number/releases/download/1/default.zip)**
+
+1. 下载解压 `default.zip`。
+2. 双击运行其中的程序文件即可直接启动使用。
 
 ---
 
@@ -19,9 +31,9 @@
 
 ---
 
-## 🛠️ 环境要求与依赖库
+## 🛠️ 源码部署与环境要求
 
-在运行本项目之前，请确保已安装 Python 3.8 或更高版本。
+如果您希望从源码运行，请确保系统已安装 Python 3.8 或更高版本。
 
 ### 依赖第三方库
 
@@ -31,11 +43,7 @@
 * **pynput**：用于全局监听中断按键
 * **pyperclip**：用于剪贴板数据读取与写入
 
----
-
-## 📦 快速安装与运行
-
-1. **克隆或下载本仓库代码**：
-   ```bash
-   git clone [https://github.com/your-username/your-repo-name.git](https://github.com/your-username/your-repo-name.git)
-   cd your-repo-name
+### 1. 克隆仓库
+```bash
+git clone [https://github.com/linrabbit271/Roll_number.git](https://github.com/linrabbit271/Roll_number.git)
+cd Roll_number
