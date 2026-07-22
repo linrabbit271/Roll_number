@@ -1,12 +1,14 @@
 import sys
 import os
 import time
+import traceback
 import shutil
 import threading
 import pyperclip
 import pyautogui
 import cv2
 import numpy as np
+import requests  # 🌟 用于双节点远程许可锁核验
 
 # 全局键盘监听库
 from pynput import keyboard
@@ -14,12 +16,68 @@ from pynput import keyboard
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QLabel, QFrame,
                              QPlainTextEdit, QMessageBox, QFileDialog,
-                             QSplashScreen, QProgressBar)
+                             QSplashScreen, QProgressBar, QDialog, QTextEdit)
 from PyQt6.QtCore import Qt, pyqtSignal, QObject
-from PyQt6.QtGui import QCursor, QPixmap, QIcon, QPainter, QColor, QPen
+from PyQt6.QtGui import QCursor, QPixmap, QIcon, QPainter, QColor, QPen, QFont
 
 
-# ==================== 1. 原生矢量 App 图标绘制 ====================
+# ==================== 1. 独立法律免责协议窗口 ====================
+class DisclaimerWindow(QDialog):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("软件使用协议与免责声明")
+        self.setFixedSize(620, 520)
+        self.setWindowFlags(Qt.WindowType.WindowCloseButtonHint | Qt.WindowType.CustomizeWindowHint)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QVBoxLayout(self)
+
+        title = QLabel("⚠️ 使用条款与开发者风险责任豁免协议")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c; margin: 5px 0;")
+        layout.addWidget(title)
+
+        self.text_area = QTextEdit()
+        self.text_area.setReadOnly(True)
+        self.text_area.setStyleSheet(
+            "background-color: #f8f9fa; border: 1px solid #dee2e6; font-size: 13px; line-height: 1.6; padding: 12px; color: #2c3e50;")
+
+        disclaimer_text = (
+            "欢迎使用本自动化视觉同步插件。在正式进入系统前，请使用者务必仔细阅读、充分理解以下条款。一旦点击“我同意并进入系统”，即代表您及您所代表的机构已完全知悉并自愿接受以下所有约束与免责条款：\n\n"
+            "1. 版权归属与个人自研声明\n"
+            "本插件（包括但不限于所有底层架构、图形识别算法及核心代码）属于原开发者个人独立自研的技术资产，其完整版权、所有权及最终解释权永久归属原作者个人所有。本插件未与任何机构或雇主签署排他性交付协议。原作者当前仅以技术交流与模拟测试目的，授予使用者临时的、非排他性的使用许可。原作者保留在任何时间，无条件收回、终止或撤销授权的绝对权利。\n\n"
+            "2. 技术资产保护与禁止滥用\n"
+            "未经原作者书面明确授权，严禁任何组织或个人对本插件进行破解、反编译、逆向工程、篡改或将其用于商业售卖。本插件仅供技术学习与个人日常办公效能提升之用，任何机构或个人不得将本插件用于非合规的大规模高频轰炸或恶意扰乱第三方系统运行的场景。\n\n"
+            "3. 业务风险与第三方平台变动完全免责\n"
+            "本插件作为纯个人研究项目，按“现状（AS-IS）”提供，原作者不对其功能的稳定性、绝对无错性做任何技术担保。因第三方客户端更新升级、界面UI像素调整导致插件失效，或因使用者日常操作不当、误操作引发的任何业务纠纷、数据清洗偏差、经济损失或平台风控处罚，全部风险与法律责任均由使用者自行承担，原开发者不承担任何直接或连带的赔偿责任。\n\n"
+            "4. 无技术支持义务与永久责任豁免\n"
+            "作为个人自研的免费技术试验品，原作者没有义务对本插件提供长期的技术支持、缺陷修复、版本更新或环境维护。无论在何种时间、何种运行环境下，由本插件引发的任何形式的技术故障、工作延误或业务流转异常，原作者均享有永久、完全且无条件的民事与刑事责任豁免权。"
+        )
+        self.text_area.setPlainText(disclaimer_text)
+        layout.addWidget(self.text_area)
+
+        btn_layout = QHBoxLayout()
+        self.btn_exit = QPushButton(" 拒绝并退出 ")
+        self.btn_exit.setFixedSize(140, 38)
+        self.btn_exit.clicked.connect(self.reject)
+        self.btn_exit.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_exit.setStyleSheet(
+            "background-color: #6c757d; color: white; border-radius: 4px; font-weight: bold; font-size: 13px;")
+
+        self.btn_agree = QPushButton(" 我同意并进入系统 ")
+        self.btn_agree.setFixedSize(190, 38)
+        self.btn_agree.clicked.connect(self.accept)
+        self.btn_agree.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_agree.setStyleSheet(
+            "background-color: #198754; color: white; border-radius: 4px; font-weight: bold; font-size: 13px;")
+
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_exit)
+        btn_layout.addWidget(self.btn_agree)
+        layout.addLayout(btn_layout)
+
+
+# ==================== 2. 原生矢量 App 图标绘制 ====================
 def create_app_icon() -> QIcon:
     """ 使用 QPainter 动态绘制矢量的程序窗口图标 """
     size = 128
@@ -60,52 +118,101 @@ def create_app_icon() -> QIcon:
     return QIcon(pixmap)
 
 
-# ==================== 2. 软件启动 Splash 进度条界面 ====================
-class AppSplashScreen(QSplashScreen):
+# ==================== 3. 极质感闪屏进度条 ====================
+class LoadingSplashScreen(QSplashScreen):
     def __init__(self):
-        splash_pixmap = QPixmap(420, 240)
-        splash_pixmap.fill(QColor("#1e272e"))
-        super().__init__(splash_pixmap)
+        pixmap = QPixmap(420, 240)
+        pixmap.fill(QColor("#2c3e50"))
+        super().__init__(pixmap)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 20)
+        self.title_label = QLabel(" 网页信息跨页提取系统 ", self)
+        self.title_label.setGeometry(20, 45, 380, 45)
+        self.title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: #1abc9c; background: transparent;")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title_lbl = QLabel("🚀 网页信息跨页提取系统")
-        title_lbl.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffffff;")
-        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label = QLabel(" 🚀 跨页提取系统运行环境初始化... ", self)
+        self.label.setGeometry(20, 135, 380, 25)
+        self.label.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        self.label.setStyleSheet("color: #ffffff; background: transparent;")
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.status_lbl = QLabel("正在初始化组件...")
-        self.status_lbl.setStyleSheet("font-size: 12px; color: #d2dae2;")
-        self.status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(8)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar { background-color: #485460; border: none; border-radius: 4px; }
-            QProgressBar::chunk { background-color: #2ed573; border-radius: 4px; }
+        self.progressBar = QProgressBar(self)
+        self.progressBar.setGeometry(20, 175, 380, 18)
+        self.progressBar.setRange(0, 100)
+        self.progressBar.setValue(0)
+        self.progressBar.setTextVisible(False)
+        self.progressBar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #34495e;
+                border-radius: 6px;
+                background-color: #34495e;
+            }
+            QProgressBar::chunk {
+                background-color: #1abc9c; 
+                border-radius: 5px;
+            }
         """)
 
-        layout.addWidget(title_lbl)
-        layout.addStretch()
-        layout.addWidget(self.status_lbl)
-        layout.addWidget(self.progress_bar)
-
-    def set_progress(self, value: int, text: str):
-        self.progress_bar.setValue(value)
-        self.status_lbl.setText(text)
+    def setProgress(self, value: int, text_info: str):
+        self.progressBar.setValue(value)
+        self.label.setText(text_info)
         QApplication.processEvents()
 
 
-# ==================== 3. 跨线程信号通讯器 ====================
+def smooth_progress_to(splash_widget, start_val, end_val, text_info, step_delay=0.008):
+    """ 通过 Qt 事件循环无感刷新，将进度条从 start_val 丝滑地推送到 end_val """
+    if not splash_widget:
+        return
+    for val in range(start_val, end_val + 1):
+        splash_widget.setProgress(val, text_info)
+        time.sleep(step_delay)
+
+
+# ==================== 4. 🔐 核心双节点远程许可锁 ====================
+def check_remote_license(splash_widget=None):
+    gitee_url = "https://raw.giteeusercontent.com/rabbit_14_0/toolbox-license/raw/master/auth.json"
+    github_url = "https://raw.githubusercontent.com/linrabbit271/toolbox-license/refs/heads/main/auth.json"
+
+    if splash_widget:
+        smooth_progress_to(splash_widget, 31, 45, " 🔐 正在建立双节点安全授权连接... ")
+
+    auth_data = None
+    try:
+        response = requests.get(gitee_url, timeout=2.5)
+        response.raise_for_status()
+        auth_data = response.json()
+    except requests.exceptions.RequestException:
+        if splash_widget:
+            smooth_progress_to(splash_widget, 45, 65, " 🌐 主节点无响应，切入国际备用节点... ")
+        try:
+            response = requests.get(github_url, timeout=4)
+            response.raise_for_status()
+            auth_data = response.json()
+        except requests.exceptions.RequestException:
+            pass
+
+    if auth_data is None:
+        if splash_widget:
+            splash_widget.close()
+        QMessageBox.critical(None, "网络异常", "无法连接到系统授权服务器，请检查网络后重试。")
+        sys.exit(0)
+
+    if auth_data.get("status") != "active":
+        if splash_widget:
+            splash_widget.close()
+        error_msg = auth_data.get("msg", "系统安全授权已失效，拒绝启动。")
+        QMessageBox.critical(None, "授权到期", error_msg)
+        sys.exit(0)
+
+
+# ==================== 5. 跨线程信号通讯器 ====================
 class WorkerSignals(QObject):
-    log_sig = pyqtSignal(str)  # 日志刷新信号
-    finished_sig = pyqtSignal(str)  # 提取结束信号
+    log_sig = pyqtSignal(str)          # 日志刷新信号
+    finished_sig = pyqtSignal(str)     # 提取结束信号
 
 
-# ==================== 4. 图像识别引擎 ====================
+# ==================== 6. 图像识别引擎 ====================
 class VisionEngine:
     @staticmethod
     def locate_image_on_screen(template_path, confidence=0.75):
@@ -134,7 +241,7 @@ class VisionEngine:
         return None
 
 
-# ==================== 5. PyQt6 主界面与控制中心 ====================
+# ==================== 7. PyQt6 主界面与控制中心 ====================
 class TextExtractorApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -145,7 +252,7 @@ class TextExtractorApp(QMainWindow):
         self.stop_requested = False
         self.key_listener = None
 
-        # 🌟 核心升级：全路径智能检索定位 assets2
+        # 全路径智能检索定位 assets2
         self.assets_dir = self.locate_or_create_assets_dir()
 
         self.img_next_normal = os.path.join(self.assets_dir, "1_next_normal.png")
@@ -162,21 +269,19 @@ class TextExtractorApp(QMainWindow):
         self.refresh_asset_status()
 
     def locate_or_create_assets_dir(self):
-        """ 🌟 智能检索：在多重可能目录下寻找 assets2，没有则自动创建 """
+        """ 在多重可能目录下寻找 assets2，没有则自动创建 """
         possible_base_dirs = [
-            os.getcwd(),  # 当前工作路径
-            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else "",  # EXE同级路径
-            os.path.dirname(os.path.abspath(__file__))  # 源码脚本路径
+            os.getcwd(),
+            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else "",
+            os.path.dirname(os.path.abspath(__file__))
         ]
 
-        # 优先检索已存在的 assets2 目录
         for path in possible_base_dirs:
             if path:
                 target = os.path.join(path, "assets2")
                 if os.path.exists(target):
                     return target
 
-        # 若未找到，保底创建在主运行目录下
         primary_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(
             os.path.abspath(__file__))
         target = os.path.join(primary_dir, "assets2")
@@ -184,7 +289,7 @@ class TextExtractorApp(QMainWindow):
         return target
 
     def auto_scan_and_recover_assets(self):
-        """ 🌟 资产智能容错检索：如果在 assets2 里文件名不规范，自动更名归错 """
+        """ 资产智能容错检索：如果在 assets2 里文件名不规范，自动更名归错 """
         if not os.path.exists(self.assets_dir):
             return
 
@@ -195,21 +300,15 @@ class TextExtractorApp(QMainWindow):
 
             f_lower = f.lower()
 
-            # 匹配常态图
             if not os.path.exists(self.img_next_normal):
                 if "normal" in f_lower or "1_" in f_lower or "常态" in f_lower or "黑白" in f_lower:
-                    try:
-                        shutil.copy2(full_f, self.img_next_normal)
-                    except:
-                        pass
+                    try: shutil.copy2(full_f, self.img_next_normal)
+                    except: pass
 
-            # 匹配高亮图
             if not os.path.exists(self.img_next_hover):
                 if "hover" in f_lower or "2_" in f_lower or "高亮" in f_lower or "橙色" in f_lower:
-                    try:
-                        shutil.copy2(full_f, self.img_next_hover)
-                    except:
-                        pass
+                    try: shutil.copy2(full_f, self.img_next_hover)
+                    except: pass
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -522,11 +621,10 @@ class TextExtractorApp(QMainWindow):
         self.lbl_status.setText("面板已清空，就绪...")
 
 
-# ==================== 6. 程序入口与 AppUserModelID 注册 ====================
+# ==================== 8. 🚀 全新四段式启动总闸门 ====================
 if __name__ == "__main__":
     if sys.platform == 'win32':
         import ctypes
-
         my_appid = 'mycompany.web_extractor.app.v12'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_appid)
 
@@ -534,18 +632,28 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
 
-    splash = AppSplashScreen()
+    # 1. 弹出闪屏
+    splash = LoadingSplashScreen()
     splash.show()
 
-    splash.set_progress(30, "初始化界面与矢量图标...")
-    time.sleep(0.15)
-    splash.set_progress(70, "自动检索本地历史资产...")
-    time.sleep(0.15)
-    splash.set_progress(100, "就绪，正在启动...")
-    time.sleep(0.2)
+    # 2. 推进进度（第一阶段：0% -> 30%）
+    smooth_progress_to(splash, 0, 15, " ⚙️ 正在挂载全局核心总线... ")
+    smooth_progress_to(splash, 16, 30, " 📂 正在索引图像匹配引擎... ")
 
-    win = TextExtractorApp()
-    win.show()
+    # 3. 双节点安全授权检查（第二阶段：30% -> 65% 会在 check_remote_license 内部接力推送）
+    check_remote_license(splash)
 
-    splash.finish(win)
-    sys.exit(app.exec())
+    # 4. 授权通过，完成最后装箱（第三阶段：65% -> 100%）
+    smooth_progress_to(splash, 66, 85, " 🔒 远程安全防线匹配通过... ")
+    smooth_progress_to(splash, 86, 100, " 🎉 初始化就绪 ")
+    time.sleep(0.1)
+
+    # 5. 🌟 弹出免责协议与启动主界面
+    disclaimer = DisclaimerWindow()
+    if disclaimer.exec() == QDialog.DialogCode.Accepted:
+        win = TextExtractorApp()
+        splash.finish(win)
+        win.show()
+        sys.exit(app.exec())
+    else:
+        sys.exit(0)
