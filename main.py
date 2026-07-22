@@ -101,8 +101,8 @@ class AppSplashScreen(QSplashScreen):
 
 # ==================== 3. 跨线程信号通讯器 ====================
 class WorkerSignals(QObject):
-    log_sig = pyqtSignal(str)          # 日志刷新信号
-    finished_sig = pyqtSignal(str)     # 提取结束信号
+    log_sig = pyqtSignal(str)  # 日志刷新信号
+    finished_sig = pyqtSignal(str)  # 提取结束信号
 
 
 # ==================== 4. 图像识别引擎 ====================
@@ -145,8 +145,8 @@ class TextExtractorApp(QMainWindow):
         self.stop_requested = False
         self.key_listener = None
 
-        self.assets_dir = os.path.join(os.path.abspath(os.path.dirname(__file__)), "assets2")
-        os.makedirs(self.assets_dir, exist_ok=True)
+        # 🌟 核心升级：全路径智能检索定位 assets2
+        self.assets_dir = self.locate_or_create_assets_dir()
 
         self.img_next_normal = os.path.join(self.assets_dir, "1_next_normal.png")
         self.img_next_hover = os.path.join(self.assets_dir, "2_next_hover.png")
@@ -155,8 +155,61 @@ class TextExtractorApp(QMainWindow):
         self.signals.log_sig.connect(self.update_log)
         self.signals.finished_sig.connect(self.on_pipeline_finished)
 
+        # 自动检索补全缺少的图片
+        self.auto_scan_and_recover_assets()
+
         self.setup_ui()
         self.refresh_asset_status()
+
+    def locate_or_create_assets_dir(self):
+        """ 🌟 智能检索：在多重可能目录下寻找 assets2，没有则自动创建 """
+        possible_base_dirs = [
+            os.getcwd(),  # 当前工作路径
+            os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else "",  # EXE同级路径
+            os.path.dirname(os.path.abspath(__file__))  # 源码脚本路径
+        ]
+
+        # 优先检索已存在的 assets2 目录
+        for path in possible_base_dirs:
+            if path:
+                target = os.path.join(path, "assets2")
+                if os.path.exists(target):
+                    return target
+
+        # 若未找到，保底创建在主运行目录下
+        primary_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(
+            os.path.abspath(__file__))
+        target = os.path.join(primary_dir, "assets2")
+        os.makedirs(target, exist_ok=True)
+        return target
+
+    def auto_scan_and_recover_assets(self):
+        """ 🌟 资产智能容错检索：如果在 assets2 里文件名不规范，自动更名归错 """
+        if not os.path.exists(self.assets_dir):
+            return
+
+        files = os.listdir(self.assets_dir)
+        for f in files:
+            full_f = os.path.join(self.assets_dir, f)
+            if not os.path.isfile(full_f): continue
+
+            f_lower = f.lower()
+
+            # 匹配常态图
+            if not os.path.exists(self.img_next_normal):
+                if "normal" in f_lower or "1_" in f_lower or "常态" in f_lower or "黑白" in f_lower:
+                    try:
+                        shutil.copy2(full_f, self.img_next_normal)
+                    except:
+                        pass
+
+            # 匹配高亮图
+            if not os.path.exists(self.img_next_hover):
+                if "hover" in f_lower or "2_" in f_lower or "高亮" in f_lower or "橙色" in f_lower:
+                    try:
+                        shutil.copy2(full_f, self.img_next_hover)
+                    except:
+                        pass
 
     def setup_ui(self):
         central_widget = QWidget()
@@ -220,7 +273,8 @@ class TextExtractorApp(QMainWindow):
         # 运行状态栏
         self.lbl_status = QLabel("就绪，等待启动...")
         self.lbl_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_status.setStyleSheet("background-color: #f8f9fa; border: 1px solid #ced4da; padding: 8px; border-radius: 4px; color: #555; font-size: 12px;")
+        self.lbl_status.setStyleSheet(
+            "background-color: #f8f9fa; border: 1px solid #ced4da; padding: 8px; border-radius: 4px; color: #555; font-size: 12px;")
         left_layout.addWidget(self.lbl_status)
 
         left_layout.addStretch()
@@ -296,30 +350,39 @@ class TextExtractorApp(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(self, "选择特征图片", "", "图片文件 (*.png *.jpg *.jpeg)")
         if file_path:
             try:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
                 shutil.copy(file_path, target_path)
                 self.refresh_asset_status()
             except Exception as e:
                 QMessageBox.critical(self, "导入失败", f"无法保存文件: {str(e)}")
 
     def refresh_asset_status(self):
+        loaded_count = 0
         for target_path, btn in self.asset_buttons.items():
             preview = self.asset_previews[target_path]
             base_name = [item[0] for item in self.asset_mapping if item[1] == target_path][0]
 
             if os.path.exists(target_path):
+                loaded_count += 1
                 btn.setText(f"✅ {base_name}")
-                btn.setStyleSheet("QPushButton { background-color: #e8f8f5; color: #27ae60; border: 1px solid #a3e4d7; text-align: left; padding-left: 8px; font-size: 11px; }")
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #e8f8f5; color: #27ae60; border: 1px solid #a3e4d7; text-align: left; padding-left: 8px; font-size: 11px; }")
 
                 pix = QPixmap(target_path)
                 if not pix.isNull():
-                    scaled = pix.scaled(preview.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    scaled = pix.scaled(preview.size(), Qt.AspectRatioMode.KeepAspectRatio,
+                                        Qt.TransformationMode.SmoothTransformation)
                     preview.setPixmap(scaled)
                     preview.setStyleSheet("border: 1px solid #27ae60; background: #fff;")
             else:
                 btn.setText(f"❌ {base_name}")
-                btn.setStyleSheet("QPushButton { background-color: #fadbd8; color: #c0392b; border: 1px solid #f5b7b1; text-align: left; padding-left: 8px; font-size: 11px; }")
+                btn.setStyleSheet(
+                    "QPushButton { background-color: #fadbd8; color: #c0392b; border: 1px solid #f5b7b1; text-align: left; padding-left: 8px; font-size: 11px; }")
                 preview.setText("—")
                 preview.setStyleSheet("border: 1px dashed #ccc; background: #f8f9fa; color: #aaa;")
+
+        if loaded_count == 2:
+            self.lbl_status.setText("✅ 已检索到并自动加载历史配置图片")
 
     def _on_key_press(self, key):
         if key == keyboard.Key.space:
@@ -461,9 +524,9 @@ class TextExtractorApp(QMainWindow):
 
 # ==================== 6. 程序入口与 AppUserModelID 注册 ====================
 if __name__ == "__main__":
-    # 🌟 关键：向 Windows 注册唯一的 AppUserModelID，使任务栏图标独立显示
     if sys.platform == 'win32':
         import ctypes
+
         my_appid = 'mycompany.web_extractor.app.v12'
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(my_appid)
 
@@ -476,7 +539,7 @@ if __name__ == "__main__":
 
     splash.set_progress(30, "初始化界面与矢量图标...")
     time.sleep(0.15)
-    splash.set_progress(70, "载入图像匹配引擎...")
+    splash.set_progress(70, "自动检索本地历史资产...")
     time.sleep(0.15)
     splash.set_progress(100, "就绪，正在启动...")
     time.sleep(0.2)
